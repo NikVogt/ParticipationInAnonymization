@@ -1,0 +1,2301 @@
+---
+title: "ParticipationStudy"
+author: "Frauke Möglich, Niklas Vogt"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 6
+    toc_float: true
+    number_sections: true
+    code_folding: hide
+    theme: cerulean
+    highlight: tango
+  pdf_document:
+    toc: true
+    toc_depth: '6'
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Preperation
+
+### Packages
+
+```{r packages, echo=FALSE}
+
+if (!requireNamespace("tidyverse", quietly = TRUE)) {
+  install.packages("tidyverse")
+}
+library(tidyverse)
+
+if (!requireNamespace("reticulate", quietly = TRUE)) {
+    install.packages("reticulate")
+  }
+library(reticulate)
+
+if (!requireNamespace("car", quietly = TRUE)) {
+    install.packages("car")
+  }
+library(reticulate)
+
+if (!requireNamespace("corrplot", quietly = TRUE)) {
+  install.packages("corrplot")
+}
+library(corrplot)
+
+if (!requireNamespace("MASS", quietly = TRUE)) {
+  install.packages("MASS")
+}
+library(MASS)
+
+if (!requireNamespace("pacman", quietly = TRUE)) {
+  install.packages("pacman")
+}
+library(pacman)
+
+if (!requireNamespace("performance", quietly = TRUE)) {
+  install.packages("performance")
+}
+library(performance)
+
+if (!requireNamespace("sandwich", quietly = TRUE)) {
+  install.packages("sandwich")
+}
+library(sandwich)
+
+if (!requireNamespace("ordinal", quietly = TRUE)) {
+  install.packages("ordinal")
+}
+library(ordinal)
+
+if (!requireNamespace("VGAM", quietly = TRUE)){
+  install.packages("VGAM")
+}
+library(VGAM)
+
+if (!requireNamespace("Hmisc", quietly = TRUE)){
+  install.packages("Hmisc")
+}
+library(Hmisc)
+
+
+#os <- import("os")
+#os$listdir(".")
+#py_run_file("test.py")
+```
+
+
+### Data Import
+```{r import, include=FALSE}
+
+load("combined_data_NV.RData")
+
+#only persons >= 18
+data_combined_cleaned <- data_combined[data_combined$DE01 >= 18, ]
+
+#failed attention check 
+#data_combined_cleaned <- data_combined_cleaned[!is.na(data_combined$PP10_05) & data_combined$PP10_05 == 2, ]
+
+#Participation in Anonymization: Persons, who didn't finish questionaire
+VP_unvollstaendig <- sort(unique(c(995, 1178, 166, 773, 995, 1178, 203, 256, 293, 526, 552, 579, 669, 744, 754, 773, 844, 856, 
+                                   894, 995, 1017, 1076, 1109, 1117, 1178, 1259, 90, 142, 150, 203, 229, 272, 293, 526, 530, 
+                                   552, 581, 582, 606, 669, 744, 754, 773, 782, 840, 844, 856, 995,1017, 1071, 1076, 1109, 
+                                   1117, 1177, 1178, 1185, 1264, 203, 744, 844, 856, 995, 1076, 1178, 1323, 8, 20, 135, 229, 
+                                   277, 419, 459, 484, 523, 590, 598, 718, 744, 871, 908, 995, 1052, 1076, 1084, 1165, 1178, 
+                                   1181, 1197, 1257, 491, 995, 1178, 33, 202, 248, 345, 372, 637, 644, 890, 908, 947, 962, 
+                                   995, 1178, 1257, 1320, 50, 90, 120, 169, 197, 202, 248, 331, 345, 440, 581, 637, 644, 754, 
+                                   761, 890, 904, 947, 962, 995, 1073, 1074, 1111, 1145, 1178, 1257, 1320, 1371, 119, 393, 
+                                   424, 440, 908, 995, 1137, 1178, 1211, 1234, 1349, 228, 424, 634, 995, 1178, 1211, 1352, 
+                                   424, 571, 634, 703, 930, 995, 1178, 394, 424, 567, 634, 995, 1178, 60, 352, 353)))
+
+data_combined_cleaned <- data_combined_cleaned[!data_combined_cleaned$CASE %in% VP_unvollstaendig, ]
+
+
+save(data_combined_cleaned, file = "data_cleaned_NV.RData")
+
+
+load("data_cleaned_NV.RData")
+ds <- data_combined_cleaned
+```
+
+```{r}
+cat("Total N without exclusions:", nrow(ds))
+```
+
+
+# Variables and Conditions
+
+## Filter/Data Exclusion
+
+Excluding Persons, who failed attention check items:
+-	HX01_19 „Ich habe bereits auf dem Jupiter gelebt“  
+- PP10_01 bis PP10_04 (Privacy Personas),  Filter  "PP10_05"
+
+```{r}
+# Faktorstufen 1–7 + NA
+ds$HX01_19 <- factor(ds$HX01_19, levels = c(1:7, NA))
+
+#print(paste("Sum of participants who did not choose \"1\" for \"Ich habe bereits auf dem Jupiter gelebt\":", sum(ds$HX01_19 != 1, na.rm = TRUE)))
+
+#print(paste("Sum of participants who did not choose correctly for \"Bitte wählen Sie die zweitniedrigste Option aus.\":", sum(ds$PP10_05 != 2, na.rm = TRUE)))
+
+ds_filtered <- ds
+
+ds_filtered <- filter(ds_filtered, (HX01_19 == 1 | is.na(HX01_19))) # Ich habe bereits auf dem Jupiter gelebt (1 == gar nicht zustimmend)
+#nrow(ds_filtered)
+ds_filtered <- filter(ds_filtered, (PP10_05 == 2 | is.na(PP10_05))) # Einstellung: Bitte wählen Sie die zweitniedrigste Option aus.
+
+#nrow(ds_filtered)
+ds <- ds_filtered
+```
+
+## Time
+
+```{r}
+colums_time <- paste0("TIME", sprintf("%03d", 50:69))
+
+ds$time_total<- rowSums(ds[, colums_time], na.rm = TRUE)/60
+```
+
+We exclude participants whose total time is less than 1/3 of the median time needed.
+
+
+```{r}
+#head(ds$time_total)
+
+ds <- subset(ds, ds$time_total > median(ds$time_total)/3 )
+
+print(paste("Sum of participants used for analysis: ", nrow(ds)))
+```
+
+
+## Control vs. Experimental Group
+
+**Study design**
+ 
+We use a between-subjects design with one factor, Participation (Mitbestimmung) (two levels: choice vs. no choice). All participants read explanations of anonymization methods for location data (hypothetical use case). In the choice condition, participants decide whether the method should be applied to their own data; in the no-choice condition, they are informed that it will be applied. Participants are randomly assigned 1:1 to conditions. All participants are presented with four anonymization methods; to reduce potential order effects, the sequence of these methods will be randomized. Thus, full counterbalancing is not required.
+
+```{r}
+ds$control <- ifelse(ds$EI06 == 1, 1, 0)
+ds$experimental <- ifelse(ds$EI06 == 2, 1, 0)
+
+ds$condition <- ifelse(
+  ds$EI06 == 1, "Control",
+  ifelse(ds$EI06 == 2, "Experimental", NA)
+)
+ds$condition <- relevel(factor(ds$condition), ref = "Control")
+```
+
+```{r}
+
+ds$condition_num <- ifelse(ds$condition == "Control", 0,
+                        ifelse(ds$condition == "Experimental", 1, NA))
+
+```
+
+
+
+
+## Demografics
+
+
+```{r gender}
+ds$gender <- ds$DE02
+
+ds %>% count(gender) %>% mutate(percent = n / sum(n) * 100)
+
+#unique(ds$gender)
+
+ds$gender_binary <- ifelse(
+  ds$gender %in% c("männlich", "weiblich"),
+  ds$gender,
+  NA
+)
+
+
+#head(ds$gender_binary)
+
+```
+```{r}
+# Count frequencies
+gender_counts_binary <- table(ds$gender_binary)
+
+```
+
+Including age for later analysis.
+
+```{r}
+
+ds$age <- as.integer(ds$DE01_01)
+
+mean_age <- mean(ds$age, na.rm = TRUE)
+ds$age_split_by_mean <- ifelse(ds$age < mean_age, "Under Mean", "Above or Equal to Mean")
+
+median_age <- median(ds$age, na.rm = TRUE)
+ds$age_split_by_median <- ifelse(ds$age < median_age, "Under Median", "Above or Equal to Median")
+
+mean(ds$age)
+sd(ds$age)
+```
+
+
+```{r}
+#hist(ds$time_total,
+#     main = "Total Time per Participant (after filtering)",
+#     xlab = "Total Time (min)",
+#     col = "lightblue",
+#     border = "white",
+#     breaks = 40  
+#)
+```
+
+## Subjective Understanding of methods for anonymization
+
+
+
+Participants are asked to rate on a 7-level Likert Scale, to which degree they 
+understood the explained method for anonymization: From "trifft gar nicht zu" 
+(does not apply at all) to "trifft voll zu" (fully applies) and "keine Angabe" 
+(no response) as an additional option.
+(four identical items, as there are four methods) 
+
+Here is an example of an explanation of a method for anonymization:
+
+*“Hinzufügen künstlicher Daten: 
+Ihre Standortdaten werden mit zusätzlichen künstlichen Informationen angereichert. 
+Zum Beispiel werden Orte hinzugefügt, an denen Sie sich nie befunden haben. 
+Dadurch kann eine Person, die über Ihre Bewegungsmuster Bescheid weiß, deutlich 
+erschwert Rückschlüsse auf Ihre Identität ziehen.”*
+
+(“Adding artificial data:
+Your location data is enriched with additional artificial information.
+For example, locations are added where you have never been.
+This makes it much more difficult for someone who knows your movement patterns to draw conclusions about your identity.“)
+
+**Calculation:**
+
+Mean of the four items:
+
+- SV1: Hinzufügen künstlicher Daten (A1)
+- SV2: Schutz sensibler Orte (A2)
+- SV3: Verallgemeinerung der Mobilitätsdaten (A3)
+- SV4: Strecken-IDs statt Nutzer-IDs (A4)
+
+
+```{r}
+ds$Subjective_Understanding_A1 <- ds$SV01_01
+ds$Subjective_Understanding_A2 <- ds$SV06_01
+ds$Subjective_Understanding_A3 <- ds$SV07_01
+ds$Subjective_Understanding_A4 <- ds$SV08_01
+
+SU_columns = c("Subjective_Understanding_A1", 
+               "Subjective_Understanding_A2", 
+               "Subjective_Understanding_A3", 
+               "Subjective_Understanding_A4")
+
+# implace '-1' as NA
+ds[, SU_columns] <- lapply(ds[, SU_columns], function(x) {
+  ifelse(x == -1, NA, x)
+})
+
+ds$Subjective_Understanding <- rowMeans(
+  ds[, SU_columns],
+  na.rm = FALSE  
+)
+
+summary(ds$Subjective_Understanding)
+sd(ds$Subjective_Understanding, na.rm = TRUE)
+```
+
+
+
+
+**Descriptive Analysis**
+
+```{r}
+par(mfrow = c(2,2))  
+
+for (col_name in SU_columns) {
+  SU <- ds[[col_name]]
+  understanding_freq <- table(factor(SU, levels = 1:7))
+  mean_val <- mean(SU, na.rm = TRUE)
+  
+  bp <- barplot(understanding_freq,
+                main = paste( col_name,
+                             "\nMean =", round(mean_val, 2)),
+                xlab = "Average Score",
+                ylab = "Frequency",
+                col = "lightblue",
+                names.arg = 1:7, 
+                ylim = c(0,450)
+  )
+
+  abline(v = bp[round(mean_val)], col = "red", lwd = 2)
+}
+
+```
+
+
+
+
+```{r}
+
+# Tabulate values
+understanding_freq <- table(factor(ds$Subjective_Understanding, levels = 1:7))
+
+
+mean_val <- weighted.mean(
+  x = as.numeric(names(understanding_freq)), 
+  w = understanding_freq,
+  na.rm = TRUE
+)
+
+title <- paste("Distribution of Subjective Understanding over all, \nMean =", round(mean_val, 2))
+
+bp <- barplot(understanding_freq,
+        main = title,
+        xlab = "Average Score",
+        ylab = "Frequency",
+        col = "lightblue",
+        ylim = c(0,300)
+)
+
+abline(v = bp[round(mean_val)], col = "red", lwd = 2)
+
+```
+
+
+
+## Objective Understanding of methods for anonymization
+
+**Description**
+
+Participants are asked to decide for six items, whether they are false (“falsch”), unclear (“unklar”) or correct (“richtig”). For each method for anonymization there is one item and in addition to two items covering the general understanding  to test the for the understanding of the concepts pseudonymization and anonymization.
+Objective Understanding of methods for anonymization:
+Participants are asked to decide for six items, whether they are false (“falsch”), unclear (“unklar”) or correct (“richtig”). For each method for anonymization there is one item in addition to two items covering the general understanding  to test for the understanding of the concepts pseudonymization and anonymization.
+
+**Calculation**
+
+Single measure between 0 points (all wrong) to 6 points (all right).
+
+OU_pseudonymization - OV08_01:
+
+- Objektives Verständnis: Wenn Daten in pseudonymisierter((*|Bei der Pseudonymisierung wird der Name oder ein anderes Identifikationsmerkmal durch ein Pseudonym (zumeist ein Code, bestehend aus einer Buchstaben- oder Zahlenkombination) ersetzt, um die Feststellung der Identität des Betroffenen auszuschließen oder wesentlich zu erschweren.)) Form vorliegen, ist es möglich auf die Identität einer Person im Datensatz mit Hilfe von Kontextinformationen zu schließen.
+  - RICHTIG (3)
+ 
+OU_anonymization - OV08_03:
+
+- Objektives Verständnis: Ersetzt man die Pseudonyme durch eine Lottozahl, so ist der Datensatz vollständig anonymisiert((*|Die Anonymisierung ist das Verändern personenbezogener Daten derart, dass diese Daten nicht mehr oder nur mit einem unverhältnismäßig großen Aufwand an Zeit, Kosten und Arbeitskraft einer bestimmten oder bestimmbaren natürlichen Person zugeordnet werden können.)).
+  - FALSCH (1)
+ 
+OU_A1: Hinzufügen künstlicher Daten (A1) - OV08_04:
+
+- Objektives Verständnis: Fügt man zusätzliche, künstliche Daten zu einem Datensatz hinzu, so dient dies der leichteren Identifikation einer Person im Datensatz.
+  - FALSCH (1)
+  
+OU_A2: Schutz sensibler Orte (A2) - OV08_02:
+
+- Objektives Verständnis: Eine Möglichkeit, den Rückschluss auf die Identität einer Person zu erschweren ist, sensible Orte, wie den Wohn- oder Arbeitsplatz, nicht zu speichern.
+  - RICHTIG (3)
+  
+OU_A3: Verallgemeinerung der Mobilitätsdaten (A3) - OV08_05:
+
+- Objektives Verständnis: Die Verallgemeinerung der Mobilitätsdaten ist eine Methode zur Anonymisierung, bei der spezifische Werte durch allgemeine Kategorien ersetzt werden. Ein Beispiel hierfür ist das Speichern der Postleitzahlen anstelle der genauen Koordinaten.
+  - RICHTIG (3)
+  
+OU_A4: Strecken-IDs statt Nutzer-IDs (A4) - OV08_07
+
+- Objektives Verständnis: Wird die Methode zur Anonymisierung "Trennung von Strecke und Person" angewendet, so wird beispielsweise jede Strecke, die die Person zurückgelegt hat, mit dem Pseudonym dieser Person versehen.
+  - FALSCH (1)
+
+
+```{r}
+ds$OU_pseudonymization <- ifelse(
+  is.na(ds$OV08_01),
+  NA,
+  ifelse(ds$OV08_01 == 3, 1, 0)
+) # RICHTIG - Pseudo
+attr(ds$OU_pseudonymization, "label") <- "1 = correctly answered, 0 = incorrect"
+
+ds$OU_anonymization <- ifelse(
+  is.na(ds$OV08_03),
+  NA,
+  ifelse(ds$OV08_03 == 1, 1, 0)
+)# FALSCH - Any
+attr(ds$OU_anonymization, "label") <- "1 = correctly answered, 0 = incorrect"
+
+ds$OU_A1 <- ifelse(
+  is.na(ds$OV08_04),
+  NA,
+  ifelse(ds$OV08_04 == 1, 1, 0)
+)# FALSCH - A1
+attr(ds$OU_A1, "label") <- "1 = correctly answered, 0 = incorrect"
+
+ds$OU_A2 <- ifelse(
+  is.na(ds$OV08_02),
+  NA,
+  ifelse(ds$OV08_02 == 3, 1, 0)
+)# RICHTIG - A2
+attr(ds$OU_A2, "label") <- "1 = correctly answered, 0 = incorrect"
+
+ds$OU_A3 <- ifelse(
+  is.na(ds$OV08_05),
+  NA,
+  ifelse(ds$OV08_05 == 3, 1, 0)
+)# RICHTIG - A3
+attr(ds$OU_A3, "label") <- "1 = correctly answered, 0 = incorrect"
+
+ds$OU_A4 <- ifelse(
+  is.na(ds$OV08_07),
+  NA,
+  ifelse(ds$OV08_07 == 1, 1, 0)
+) # FALSCH - A4
+attr(ds$OU_A4, "label") <- "1 = correctly answered, 0 = incorrect"
+
+OU_columns <- c("OU_pseudonymization", 
+                "OU_anonymization", 
+                "OU_A1", 
+                "OU_A2", 
+                "OU_A3", 
+                "OU_A4"
+                )
+
+ds$OU_score <- rowSums(
+  ds[, OU_columns],
+  na.rm = FALSE  # if one value is missing whole row will be NA
+)
+
+summary(ds$OU_score)
+sd(ds$OU_score, na.rm = TRUE)
+```
+
+
+
+Was "unklar" (unclear) clicked?
+
+```{r}
+OU_columns_for_unklar <- c("OV08_01", 
+                "OV08_03", 
+                "OV08_04", 
+                "OV08_02", 
+                "OV08_05", 
+                "OV08_07"
+                )
+
+ds$unklar_count <- rowSums(ds[OU_columns_for_unklar] == 2)
+
+hist(ds$unklar_count,
+     ylim = c(0, 500),
+     main = "Frequency of 'Unklar' Clicks",
+     xlab = "Unklar Count",
+     ylab = "Frequency",
+     col = "skyblue",
+     border = "white")
+
+```
+
+
+
+
+**Descriptive Analysis**
+
+
+```{r}
+par(mfrow = c(2,3))  
+
+for (col_name in OU_columns) {
+  OU <- ds[[col_name]]
+  understanding_freq <- table(factor(OU, levels = 0:1))
+  mean_val <- mean(OU, na.rm = TRUE)
+  
+  bp <- barplot(understanding_freq,
+                main = paste( col_name,
+                             "\nMean =", round(mean_val, 2)),
+                xlab = "Average Score",
+                ylab = "Frequency",
+                col = "lightblue",
+                names.arg = c("false", "correct"),
+                ylim = c(0,1010)
+              
+  )
+}
+
+```
+
+
+```{r}
+# Frequency table
+OU_freq <- table(factor(ds$OU_score, levels = 0:6))
+
+# Mean of actual scores
+mean_val <- mean(ds$OU_score, na.rm = TRUE)
+
+# Barplot
+bp <- barplot(OU_freq,
+              main = paste("Score Objective Understanding, \nMean =", round(mean_val, 2)),
+              xlab = "Average Score",
+              ylab = "Frequency",
+              col = "lightblue",
+              ylim = c(0,400)
+)
+
+# Add a vertical line at mean
+# Map mean score to bar position
+x_pos <- bp[mean_val + 1]  # +1 if scores start at 0
+abline(v = x_pos, col = "red", lwd = 2)
+
+
+```
+```{r}
+alpha_OU <- psych::alpha(ds[, OU_columns], discrete = FALSE, check.keys = TRUE)
+
+print(alpha_OU)
+```
+
+
+## Acceptance to share mobility data with the App
+
+**Description**
+
+Participants are asked to rate on a 7-level Likert Scale (from "trifft gar nicht zu" (does not apply at all) to "trifft voll zu" (fully applies) and "keine Angabe" (no response) as an additional option) to which degree...:
+
+- they would be willing to share their mobility data with the app
+  - *Ich würde meine Standortdaten mit der App teilen.*
+  - AK05_01
+  
+- they would be willing to download the app
+  - *Ich würde die App herunterladen.*
+  - AK05_02
+  
+- they would be willing to use the app in their everyday life.
+  - *Ich würde die App in meinem Alltag nutzen.*
+  - AK05_03
+  
+  
+  
+**Calculation**
+
+Mean of the three items.
+
+```{r}
+
+columns_Acceptance <- c("AK05_01", "AK05_02", "AK05_03")
+
+#summary(ds$AK05_01)
+#summary(ds$AK05_02)
+#summary(ds$AK05_03)
+
+# implace '-1' as NA
+ds[, columns_Acceptance] <- lapply(ds[, columns_Acceptance], function(x) {
+  ifelse(x == -1, NA, x)
+})
+
+ds$Acceptance <- rowMeans(
+  ds[, columns_Acceptance],
+  na.rm = FALSE  # if one value is missing whole row will be NA
+)
+
+summary(ds$Acceptance)
+sd(ds$Acceptance, na.rm = TRUE)
+```
+
+**Descriptive Analysis**
+
+```{r}
+# Frequency table
+freq <- table(factor(ds$Acceptance, levels = 1:7))
+
+# Mean of actual scores
+mean_val <- mean(ds$Acceptance, na.rm = TRUE)
+
+# Barplot
+bp <- barplot(freq,
+              main = paste("Acceptance, \nMean =", round(mean_val, 2)),
+              xlab = "Average Score",
+              ylab = "Frequency",
+              col = "lightblue", 
+              ylim = c(0,210)
+)
+
+# Add a vertical line at mean
+# Map mean score to bar position
+x_pos <- bp[mean_val]  # +1 if scores start at 0
+abline(v = x_pos, col = "red", lwd = 2)
+
+```
+
+
+**internal consistency**
+
+- 1. Conbach's Aplpha
+
+```{r}
+
+data_Acceptance <- ds[, columns_Acceptance]
+
+# 1. Cronbach's Alpha Calculation
+cronbach_alpha_data_Acceptance <- psych::alpha(data_Acceptance)
+print(cronbach_alpha_data_Acceptance)
+
+
+```
+
+
+## Feeling of being informed enough, to take a decision
+
+**Description**
+
+Participants are asked to rate on a 7-level Likert Scale, to which degree they felt sufficiently informed to take a decision.
+
+- feeling of beeing informaed enogh to take an desicion
+  - *Ich fühle mich ausreichend informiert, um eine Entscheidung zu treffen.*
+  - AK05_04
+
+**Calculation**
+
+Only one item, no combination needed.
+
+```{r}
+# implace '-1' as NA
+ds$AK05_04 <- ifelse(ds$AK05_04 == -1, NA, ds$AK05_04)
+
+ds$subjective_informedness <- ds$AK05_04
+#ds$subjective_informedness
+
+summary(unlist(ds$subjective_informedness))
+    
+```
+
+**Descriptive Analysis**
+
+```{r}
+
+
+# Frequency table
+freq <- table(factor(ds$subjective_informedness, levels = 1:7))
+
+# Mean of actual scores
+mean_val <- mean(ds$subjective_informedness, na.rm = TRUE)
+
+# Barplot
+bp <- barplot(freq,
+              main = paste("subjective_informedness, \nMean =", round(mean_val, 2)),
+              xlab = "Average Score",
+              ylab = "Frequency",
+              col = "lightblue", 
+              ylim = c(0,300)
+)
+
+# Add a vertical line at mean
+# Map mean score to bar position
+x_pos <- bp[mean_val]  # +1 if scores start at 0
+abline(v = x_pos, col = "red", lwd = 2)
+
+```
+
+## Feeling of pressure to share the mobility data with the app
+
+**Description**
+
+Participants are asked to rate on a 7-level Likert Scale, to which degree they felt ...
+
+- feeling of set under pressure to share mobility data with the app
+  - *Ich fühle mich unter Druck gesetzt, meine Standortdaten mit der App zu teilen.*
+  - AK05_05
+
+**Calculation**
+
+Only one item, no combination needed.
+
+```{r}
+ds$AK05_05 <- ifelse(ds$AK05_05 == -1, NA, ds$AK05_05)
+
+ds$subjective_pressure_to_share_data <- ds$AK05_05
+#ds$subjective_pressure_to_share_data
+
+summary(unlist(ds$subjective_pressure_to_share_data))
+```
+
+
+**Descriptive Analysis**
+
+```{r}
+
+
+# Frequency table
+freq <- table(factor(ds$subjective_pressure_to_share_data, levels = 1:7))
+
+# Mean of actual scores
+mean_val <- mean(ds$subjective_pressure_to_share_data, na.rm = TRUE)
+
+# Barplot
+bp <- barplot(freq,
+              main = paste("subjective_pressure_to_share_data, \nMean =", round(mean_val, 2)),
+              xlab = "Average Score",
+              ylab = "Frequency",
+              col = "lightblue", 
+              ylim = c(0,250)
+)
+
+# Add a vertical line at mean
+# Map mean score to bar position
+x_pos <- bp[mean_val]  # +1 if scores start at 0
+abline(v = x_pos, col = "red", lwd = 2)
+
+```
+
+## Feeling of participation
+
+
+**Description**
+
+Participants are asked to rate on a 7-level Lickert Scale, to which degree they 
+1. Had the feeling to participate in the decision how their data was anonymized and 
+2. Could choose how their data was processed.
+
+- *Ich hatte das Gefühl mitbestimmt zu haben, inwiefern meine Daten anonymisiert wurden.*
+  - EM04_01
+- *Ich konnte auswählen, wie meine Daten verarbeitet werden.*
+  - EM04_02
+
+**Calculation**
+
+Mean of the two items.
+
+```{r}
+columns_Feeling_of_participation <- c("EM04_01", "EM04_02")
+
+# implace '-1' as NA
+ds[, columns_Feeling_of_participation] <- lapply(ds[, columns_Feeling_of_participation], function(x) {
+  ifelse(x == -1, NA, x)
+})
+
+ds$Feeling_of_participation <- rowMeans(
+  ds[, columns_Feeling_of_participation],
+  na.rm = FALSE  # if one value is missing whole row will be NA
+)
+
+summary(ds$Feeling_of_participation)
+sd(ds$Feeling_of_participation, na.rm = TRUE)
+```
+
+**Descriptive Analysis**
+
+```{r}
+
+plot_data <- subset(ds, control == 1)
+
+# Frequency table
+freq <- table(factor(plot_data$Feeling_of_participation, levels = 1:7))
+
+# Mean of actual scores
+mean_val <- mean(plot_data$Feeling_of_participation, na.rm = TRUE)
+
+# Barplot
+bp <- barplot(freq,
+              main = paste("Feeling_of_participation - Control Group, \nMean =", round(mean_val, 2)),
+              xlab = "Average Score",
+              ylab = "Frequency",
+              col = "lightblue",
+              ylim = c(0,120)
+)
+
+# Add a vertical line at mean
+# Map mean score to bar position
+x_pos <- bp[mean_val]  # +1 if scores start at 0
+abline(v = x_pos, col = "red", lwd = 2)
+
+mtext(paste("Note: Participants in this Condition: ", nrow(plot_data)),
+      side = 1,       # bottom margin (x-axis side)
+      line = 4,       # how far below the axis (increase value to move lower)
+      cex = 0.7       # font size
+)
+
+
+```
+
+```{r}
+#plot_data <- subset(ds, control == 1)
+plot_data <- subset(ds, experimental == 1)
+
+# Frequency table
+freq <- table(factor(plot_data$Feeling_of_participation, levels = 1:7))
+
+# Mean of actual scores
+mean_val <- mean(plot_data$Feeling_of_participation, na.rm = TRUE)
+
+# Barplot
+bp <- barplot(freq,
+              main = paste("Feeling_of_participation - Experimental Group, \nMean =", round(mean_val, 2)),
+              xlab = "Average Score",
+              ylab = "Frequency",
+              col = "lightblue",
+              ylim = c(0,120)
+)
+
+# Add a vertical line at mean
+# Map mean score to bar position
+x_pos <- bp[mean_val]  # +1 if scores start at 0
+abline(v = x_pos, col = "red", lwd = 2)
+
+mtext(paste("Note: Participants in this Condition: ", nrow(plot_data)),
+      side = 1,       # bottom margin (x-axis side)
+      line = 4,       # how far below the axis (increase value to move lower)
+      cex = 0.7       # font size
+)
+
+
+
+```
+### Test 
+
+```{r}
+### Test 
+
+### Preparation
+# response variable: ds$Feeling_of_participation
+# grouping variable: ds$condition
+
+ds$condition <- as.factor(ds$condition)
+ds$condition <- droplevels(ds$condition)
+
+# Show levels and group sizes
+#levels(ds$condition)
+table(ds$condition)
+
+
+### 1. Normality tests (Shapiro–Wilk)
+
+# Group 1
+shapiro.test(ds$Feeling_of_participation[ds$condition == levels(ds$condition)[1]])
+
+# Group 2
+shapiro.test(ds$Feeling_of_participation[ds$condition == levels(ds$condition)[2]])
+
+
+### 2. Homogeneity of variances
+
+# Optional: Levene's test (robust)
+# library(car)
+# leveneTest(Feeling_of_participation ~ condition, data = ds)
+
+# Bartlett's test (requires normality)
+bartlett.test(Feeling_of_participation ~ condition, data = ds)
+
+
+### 3. t-tests
+
+# Standard t-test (var.equal = TRUE)
+t.test(Feeling_of_participation ~ condition, 
+       data = ds, 
+       var.equal = TRUE)
+
+# Welch's t-test (default, safer if variances differ)
+t.test(Feeling_of_participation ~ condition, 
+       data = ds, 
+       var.equal = FALSE)
+
+
+### 4. Non-parametric alternative (if non-normal)
+wilcox.test(Feeling_of_participation ~ condition, 
+            data = ds)
+
+```
+Cronbachs Alpha
+
+```{r}
+data_Mani <- ds[, c("EM04_01", "EM04_02")]
+
+# 1. Cronbach's Alpha Calculation
+cronbach_alpha_data_Mani <- psych::alpha(data_Mani)
+print(cronbach_alpha_data_Mani)
+```
+
+
+
+
+## Engagement with the explanations
+
+**Open Questions**
+
+**Description**
+
+It will be saved whether a participant did open the explanation box 
+(six in total: anonymization and pseudonymization, each method for anonymization).
+Example: “Hinzufügen künstlicher Daten (für eine Erklärung bitte hier klicken)” 
+(“Add artificial data (for an explanation, please click here)”)
+
+
+**Examples**
+
+---
+
+**Explanation Boxes for Anonymization and Psyeudonymization**
+
+
+
+```{=html}
+<div style="border: 2px solid black; padding: 15px; margin: 15px; background-color: #f9f9f9;">
+  <p>
+    <strong>Bitte stellen Sie sich folgenden Szenario vor:</strong><br>
+  
+    <div style="position: relative;">
+      <div style="border:1px solid black; padding:10px; margin:10px;">
+          <p>
+            Sie haben sich dafür entschieden eine neue App zu nutzen.
+            In dieser Umfrage soll es keine Rolle spielen, um welche konkrete App es sich handelt.
+            Der Fokus liegt lediglich auf Ihrer Entscheidung Ihre Standortdaten mit der App zu teilen oder nicht.
+          </p>
+          <p>
+            Falls Sie Ihre Standortdaten mit der App zu teilen würden, würden Ihre Standortdaten in pseudonymisierter <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxPseudonymisierung()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em> Form gespeichert werden.
+          </p>
+          <p>
+            Zusätzlich haben Sie die Möglichkeit, weitere Methoden zur Anonymisierung <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxAnonymisierung()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em> auf Ihre Daten anzuwenden.
+          </p>
+          <p>
+            Durch die Anwendung weiterer Methoden zur Anonymisierung wird ein Rückschluss auf ihre Identität deutlich erschwert.
+          </p>
+      </div>
+  
+      <div id="InfoBoxPseudonymisierung" style="width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px">
+        <strong>Pseudonymisierung:</strong>
+        <br>
+        Bei der Pseudonymisierung wird der Name oder ein anderes Identifikationsmerkmal durch ein Pseudonym (zumeist ein Code, bestehend aus einer Buchstaben- oder Zahlenkombination) ersetzt, um die Feststellung der Identität des Betroffenen auszuschließen oder wesentlich zu erschweren.
+      </div>
+      <div id="InfoBoxAnonymisierung" style="width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px">
+        <strong>Anonymisierung:</strong>
+        <br>
+        Anonymisierung bedeutet, personenbezogene Daten so zu verändern, dass sie einer bestimmten oder bestimmbaren natürlichen Person nicht mehr - oder nur noch mit unverhältnismäßig großem Aufwand an Zeit, Kosten und Arbeitskraft - zugeordnet werden können.
+      </div>
+    </div>
+  </p>
+  
+  <script>
+    var intVarPseudonymisierung = document.getElementById("EI03_01");
+    intVarPseudonymisierung.value = "1";
+    function toggleInfoBoxPseudonymisierung() {
+      var infoBox = document.getElementById('InfoBoxPseudonymisierung');
+      if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+        infoBox.style.display = 'block';
+        intVarPseudonymisierung.value = "2";
+      } else {
+        infoBox.style.display = 'none';
+      }
+    }
+    var intVarAnonymisierung = document.getElementById("EI04_01");
+    intVarAnonymisierung.value = "1";
+    function toggleInfoBoxAnonymisierung() {
+      var infoBox = document.getElementById('InfoBoxAnonymisierung');
+      if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+        infoBox.style.display = 'block';
+        intVarAnonymisierung.value = "2";
+      } else {
+        infoBox.style.display = 'none';
+      }
+    }
+  </script>
+</div>
+```
+
+---
+
+**Control Group Acceptance**
+
+(php is not interpreted! )
+
+```{=html}
+<div style="border: 2px solid black; padding: 15px; margin: 15px; background-color: #f9f9f9;">
+  $list = [];
+  
+  // A1
+  $list[] = 'Hinzufügen künstlicher Daten <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA1()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  
+  // A2
+  $list[] = 'Schutz sensibler Orte <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA2()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  
+  // A3
+  
+  $list[] = 'Verallgemeinerung der Mobilitätsdaten <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA3()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  
+  
+  // A4
+  
+  $list[] = 'Vergabe von Strecken-IDs anstelle Nutzer-IDs <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA4()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  
+  
+  // HTML mit bullet points
+  
+  $list_html = "<ul>";
+  foreach ($list as $item) {
+      $list_html .= "<li>" . $item . "</li>";
+  }
+  $list_html .= "</ul>";
+  
+  
+  
+  // Anzeige
+  html("<strong>Ihnen wird nun Folgendes angezeigt:</strong>
+  <div style='border:1px solid black; padding:10px; margin:10px;'>
+      Neben einer Pseudonymisierung werden folgende zusätzliche Methoden zur Anonymisierung auf Ihre Daten angewendet:
+      <br>
+      $list_html
+      <br>
+  </div>
+  
+  <!-- INFO BOXEN -->
+  <div id='InfoBoxA1' style='width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px;'>
+      <strong>Hinzufügen künstlicher Daten:</strong>
+      <br>
+      Ihre Standortdaten werden mit zusätzlichen künstlichen Informationen angereichert.
+      Zum Beispiel werden Orte hinzugefügt, an denen Sie sich nie befunden haben.
+      Dadurch kann eine Person, die über Ihre Bewegungsmuster Bescheid weiß, keine Rückschlüsse auf Ihre Identität ziehen.
+  </div>
+  
+  <div id='InfoBoxA2' style='width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px;'>
+      <strong>Schutz sensibler Orte:</strong>
+      <br>
+      Ihre Standortdaten werden nur an bestimmten Orten erhoben. Zum Beispiel werden keine Standortdaten in der Nähe Ihres Wohn- oder Arbeitsplatzes gespeichert. Dadurch kann eine Person, die über Ihren Wohn- oder Arbeitsort Bescheid weiß, keine Rückschlüsse auf Ihre Identität ziehen. 
+  </div>
+  
+  <div id='InfoBoxA3' style='width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px;'>
+      <strong>Verallgemeinerung der Mobilitätsdaten:</strong>
+      <br>
+      Ihre Standortdaten werden nur unter allgemeineren Kategorien gespeichert. Zum Beispiel werden anstatt Ihres genauen Aufenthaltsortes nur noch die Postleitzahl gespeichert. Dadurch kann eine Person, die über Ihren Besuch eines spezifischen Ortes Bescheid weiß, keine Rückschlüsse auf Ihre Identität ziehen.
+  </div>
+  
+  <div id='InfoBoxA4' style='width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px;'>
+      <strong>Vergabe von Strecken-IDs anstelle Nutzer-IDs:</strong>
+      <br>
+      Es wird nur gespeichert, welcher Strecke die Standortdaten zugeordnet sind – jedoch nicht, ob diese Strecke Ihnen oder einer anderen Person gehört. Statt Nutzer-IDs werden daher Strecken-IDs vergeben. Haben Sie zum Beispiel drei unterschiedliche Wege zurückgelegt, wird jeder Weg separat erfasst, ohne die Information, dass alle Strecken von derselben Person stammen. So kann selbst jemand, der Ihre regelmäßigen Aufenthaltsorte kennt, keine Rückschlüsse auf Ihre Identität ziehen.
+  
+  </div>
+  
+  <script>
+      // A1 INFO BOTTON
+      var intVarA1 = document.getElementById('AK06_01');
+      intVarA1.value = '1';
+      function toggleInfoBoxA1() {
+          var infoBox = document.getElementById('InfoBoxA1');
+          if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+              infoBox.style.display = 'block';
+              intVarA1.value = '2';
+          } else {
+              infoBox.style.display = 'none';
+          }
+      }
+  
+      // A2 INFO BOTTON
+      var intVarA2 = document.getElementById('AK07_01');
+      intVarA2.value = '1';
+      function toggleInfoBoxA2() {
+          var infoBox = document.getElementById('InfoBoxA2');
+          if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+              infoBox.style.display = 'block';
+              intVarA2.value = '2';
+          } else {
+              infoBox.style.display = 'none';
+          }
+      }
+  
+  
+      // A3 INFO BOTTON
+      var intVarA3 = document.getElementById('AK08_01');
+      intVarA3.value = '1';
+      function toggleInfoBoxA3() {
+          var infoBox = document.getElementById('InfoBoxA3');
+          if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+              infoBox.style.display = 'block';
+              intVarA3.value = '2';
+          } else {
+              infoBox.style.display = 'none';
+          }
+      }
+  
+      // A4 INFO BOTTON
+      var intVarA4 = document.getElementById('AK09_01');
+      intVarA4.value = '1';
+      function toggleInfoBoxA4() {
+          var infoBox = document.getElementById('InfoBoxA4');
+          if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+              infoBox.style.display = 'block';
+              intVarA4.value = '2';
+          } else {
+              infoBox.style.display = 'none';
+          }
+      }
+  </script>
+  
+  <strong>Nun können Sie entscheiden, inwiefern Sie die App nutzen wollen.</strong>
+  <br>
+  <br>
+  ");
+</div>
+
+```
+
+---
+
+**Experimental Group Acceptance**
+
+(php is not interpreted! )
+
+```{=html}
+<div style="border: 2px solid black; padding: 15px; margin: 15px; background-color: #f9f9f9;">
+  $list = [];
+  $not_choosen = [];
+  
+  // A1
+  if (value('AN01') == 1) {
+      $list[] = 'Hinzufügen künstlicher Daten <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA1()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  } else {
+      $not_choosen[] = 'Hinzufügen künstlicher Daten <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA1()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  }
+  // A2
+  if (value('AN04') == 1) {
+      $list[] = 'Schutz sensibler Orte <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA2()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  } else {
+      $not_choosen[] = 'Schutz sensibler Orte <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA2()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  }
+  
+  // A3
+  if (value('AN05') == 1) {
+      $list[] = 'Verallgemeinerung der Mobilitätsdaten <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA3()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  } else {
+      $not_choosen[] = 'Verallgemeinerung der Mobilitätsdaten <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA3()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  }
+  
+  // A4
+  if (value('AN06') == 1) {
+      $list[] = 'Vergabe von Strecken-IDs anstelle Nutzer-IDs <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA4()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  } else {
+      $not_choosen[] = 'Vergabe von Strecken-IDs anstelle Nutzer-IDs <em>(für eine Erklärung bitte <span onclick="toggleInfoBoxA4()" style="border-bottom: 1px dotted; cursor: pointer;">hier</span> klicken)</em>';
+  }
+  
+  // HTML mit bullet points
+  
+  // if list is empty
+  if (empty($list)) {
+      $list[] = "Keine zusätzlichen Anonymisierungsmethoden wurden ausgewählt";
+  }
+  // if $not_choosen is empty
+  if (empty($not_choosen)) {
+      $not_choosen[] = "Alle zusätzlichen Anonymisierungsmethoden wurden ausgewählt";
+  }
+  
+  $list_html = "<ul>";
+  foreach ($list as $item) {
+      $list_html .= "<li>" . $item . "</li>";
+  }
+  $list_html .= "</ul>";
+  
+  
+  $not_choosen_html = "<ul>";
+  foreach ($not_choosen as $item) {
+      $not_choosen_html .= "<li>" . $item . "</li>";
+  }
+  $not_choosen_html .= "</ul>";
+  
+  
+  // Anzeige
+  html("<strong>Ihnen wird nun Folgendes angezeigt:</strong>
+  <div style='border:1px solid black; padding:10px; margin:10px;'>
+      Neben einer Pseudonymisierung werden folgende zusätzliche Anonymisierungsmethoden auf Ihre Daten angewendet:
+      <br>
+      $list_html
+      <br>
+      <br>
+      Neben einer Pseudonymisierung werden folgende zusätzliche Anonymisierungsmethoden <strong>nicht</strong> auf Ihre Daten angewendet:
+      <br>
+      $not_choosen_html
+  </div>
+  
+  <!-- INFO BOXEN -->
+  <div id='InfoBoxA1' style='width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px;'>
+      <strong>Hinzufügen künstlicher Daten:</strong>
+      <br>
+      Ihre Standortdaten werden mit zusätzlichen künstlichen Informationen angereichert.
+      Zum Beispiel werden Orte hinzugefügt, an denen Sie sich nie befunden haben.
+      Dadurch kann eine Person, die über Ihre Bewegungsmuster Bescheid weiß, keine Rückschlüsse auf Ihre Identität ziehen.
+  </div>
+  
+  <div id='InfoBoxA2' style='width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px;'>
+      <strong>Schutz sensibler Orte:</strong>
+      <br>
+      Ihre Standortdaten werden nur an bestimmten Orten erhoben. Zum Beispiel werden keine Standortdaten in der Nähe Ihres Wohn- oder Arbeitsplatzes gespeichert. Dadurch kann eine Person, die über Ihren Wohn- oder Arbeitsort Bescheid weiß, keine Rückschlüsse auf Ihre Identität ziehen. 
+  </div>
+  
+  <div id='InfoBoxA3' style='width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px;'>
+      <strong>Verallgemeinerung der Mobilitätsdaten:</strong>
+      <br>
+      Ihre Standortdaten werden nur unter allgemeineren Kategorien gespeichert. Zum Beispiel werden anstatt Ihres genauen Aufenthaltsortes nur noch die Postleitzahl gespeichert. Dadurch kann eine Person, die über Ihren Besuch eines spezifischen Ortes Bescheid weiß, keine Rückschlüsse auf Ihre Identität ziehen.
+  </div>
+  
+  <div id='InfoBoxA4' style='width: 500px; padding: 5px; background-color: white; border: 2px solid red; display: none; position: relative; left: 10px; top: 100%; margin-bottom: 10px;'>
+      <strong>Vergabe von Strecken-IDs anstelle Nutzer-IDs:</strong>
+      <br>
+      Es wird nur gespeichert, welcher Strecke die Standortdaten zugeordnet sind – jedoch nicht, ob diese Strecke Ihnen oder einer anderen Person gehört. Statt Nutzer-IDs werden daher Strecken-IDs vergeben. Haben Sie zum Beispiel drei unterschiedliche Wege zurückgelegt, wird jeder Weg separat erfasst, ohne die Information, dass alle Strecken von derselben Person stammen. So kann selbst jemand, der Ihre regelmäßigen Aufenthaltsorte kennt, keine Rückschlüsse auf Ihre Identität ziehen.
+  
+  </div>
+  
+  <script>
+      // A1 INFO BOTTON
+      var intVarA1 = document.getElementById('AK06_01');
+      intVarA1.value = '1';
+      function toggleInfoBoxA1() {
+          var infoBox = document.getElementById('InfoBoxA1');
+          if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+              infoBox.style.display = 'block';
+              intVarA1.value = '2';
+          } else {
+              infoBox.style.display = 'none';
+          }
+      }
+  
+      // A2 INFO BOTTON
+      var intVarA2 = document.getElementById('AK07_01');
+      intVarA2.value = '1';
+      function toggleInfoBoxA2() {
+          var infoBox = document.getElementById('InfoBoxA2');
+          if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+              infoBox.style.display = 'block';
+              intVarA2.value = '2';
+          } else {
+              infoBox.style.display = 'none';
+          }
+      }
+  
+  
+      // A3 INFO BOTTON
+      var intVarA3 = document.getElementById('AK08_01');
+      intVarA3.value = '1';
+      function toggleInfoBoxA3() {
+          var infoBox = document.getElementById('InfoBoxA3');
+          if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+              infoBox.style.display = 'block';
+              intVarA3.value = '2';
+          } else {
+              infoBox.style.display = 'none';
+          }
+      }
+  
+      // A4 INFO BOTTON
+      var intVarA4 = document.getElementById('AK09_01');
+      intVarA4.value = '1';
+      function toggleInfoBoxA4() {
+          var infoBox = document.getElementById('InfoBoxA4');
+          if (infoBox.style.display === 'none' || infoBox.style.display === '') {
+              infoBox.style.display = 'block';
+              intVarA4.value = '2';
+          } else {
+              infoBox.style.display = 'none';
+          }
+      }
+  </script>
+  
+  <strong>Nun können Sie entscheiden, inwiefern Sie die App nutzen wollen.</strong>
+  <br>
+  <br>
+  ");
+</div>
+```
+
+
+---
+
+**Calculation**
+
+Single measure between 0 points (no box opened) to 6 points (all boxes opened).
+
+Initially the value is set to "1".
+If the Box is clicked, value is set to "2". 
+If it is closed again, nothing happens.
+
+Thus: 
+
+- "1" == "not_opended"
+- "2" == "openened"
+- none == Page was not openened?
+
+**Infos Items:**
+
+- EI03_01 : Info_clicked_Pseudonymisierung: geöffnet
+- EI04_01 : Info_clicked_Anonymisierung: geöffnet
+- AK06_01 : Info_clicked_A1: geöffnet
+- AK07_01 : Info_clicked_A2: geöffnet
+- AK08_01 : Info_clicked_A3: geöffnet
+- AK09_01 : Info_clicked_A4: geöffnet
+
+
+```{r}
+table(ds$EI03_01, useNA = "ifany")
+table(ds$EI04_01, useNA = "ifany")
+table(ds$AK06_01, useNA = "ifany")
+table(ds$AK07_01, useNA = "ifany")
+table(ds$AK08_01, useNA = "ifany")
+table(ds$AK09_01, useNA = "ifany")
+
+```
+
+```{r Info_clicked_score}
+
+ds$Info_clicked_Pseudonymisierung <- ifelse(ds$EI03_01 == 2, 1, 0)
+ds$Info_clicked_Anonymisierung <- ifelse(ds$EI04_01 == 2, 1, 0)
+ds$Info_clicked_A1 <- ifelse(ds$AK06_01 == 2, 1, 0)
+ds$Info_clicked_A2 <- ifelse(ds$AK07_01 == 2, 1, 0)
+ds$Info_clicked_A3 <- ifelse(ds$AK08_01 == 2, 1, 0)
+ds$Info_clicked_A4 <- ifelse(ds$AK09_01 == 2, 1, 0)
+
+columns_info_clicked <- c("Info_clicked_Pseudonymisierung",
+                          "Info_clicked_Anonymisierung",
+                          "Info_clicked_A1",
+                          "Info_clicked_A2",
+                          "Info_clicked_A3",
+                          "Info_clicked_A4")
+
+ds$Info_clicked_score <- apply(ds[, columns_info_clicked], 1, function(row) sum(row == 1))
+
+mean_Info_clicked_score <- mean(ds$Info_clicked_score, na.rm = TRUE)
+ds$Info_clicked_score_mean <- ifelse(ds$Info_clicked_score < mean_Info_clicked_score, "Under Mean", "Above or Equal to Mean")
+
+median_Info_clicked_score <- median(ds$Info_clicked_score, na.rm = TRUE)
+ds$Info_clicked_score_median <- ifelse(ds$Info_clicked_score < median_Info_clicked_score, "Under Median", "Above or Equal to Median")
+
+#columns_info_clicked
+#ds$Info_clicked_score
+```
+### Descriptive Analysis
+```{r}
+median_Info_clicked_score
+quantile(ds$Info_clicked_score, probs = c(.25, .5, .75), na.rm = TRUE)
+
+par(mfrow = c(2,3))  
+
+for (col_name in columns_info_clicked) {
+  Info_clicked <- ds[[col_name]]
+  
+  # Ensure all possible values (1–7) are shown
+  Info_clicked_freq <- table(factor(Info_clicked, levels = 0:1))
+  
+  # Calculate mean (excluding NA)
+  mean_val <- mean(Info_clicked, na.rm = TRUE)
+  
+  N <- sum(!is.na(Info_clicked))
+  
+  # Create barplot and save bar midpoints
+  bp <- barplot(Info_clicked_freq,
+                main = paste(col_name,
+                             "\nMean =", round(mean_val, 2)),
+                xlab = "Average Score",
+                ylab = "Frequency",
+                col = "lightblue",
+                names.arg = 0:1,
+                ylim = c(0,1010)
+  )
+  mtext(paste("Note: Participants in this Condition: ", N),
+      side = 1,       # bottom margin (x-axis side)
+      line = 4,       # how far below the axis (increase value to move lower)
+      cex = 0.7       # font size
+)
+}
+
+
+
+```
+
+
+```{r}
+
+freq = table(factor(ds$Info_clicked_score, levels = 0:6))
+
+mean_val <- mean(ds$Info_clicked_score, na.rm = TRUE)
+
+# Barplot
+bp <- barplot(freq,
+              main = paste("Info_clicked_score, \nMean =", round(mean_val, 2)),
+              xlab = "Average Score",
+              ylab = "Frequency",
+              col = "lightblue", 
+              names.arg = 0:6, 
+              ylim = c(0, 600)
+)
+
+# Add a vertical line at mean
+# Map mean score to bar position
+x_pos <- bp[round(mean_val) + 1]  # +1 if scores start at 0
+abline(v = x_pos, col = "red", lwd = 2)
+
+mtext(paste("Note: Participants in this Condition: ", nrow(plot_data)),
+      side = 1,       # bottom margin (x-axis side)
+      line = 4,       # how far below the axis (increase value to move lower)
+      cex = 0.7       # font size
+)
+```
+### Cronbachs Alpha : Info clicked Score 
+
+```{r}
+data_info <- ds[, columns_info_clicked]
+
+# 1. Cronbach's Alpha Calculation
+cronbach_alpha_data_info <- psych::alpha(data_info)
+print(cronbach_alpha_data_info)
+```
+
+# Hypothesis Testing
+
+## Inference criteria
+
+The standard p&gt;.05 will be used for all statistical tests. The correlation coefficient is interpreted according to Cohen (1988): weak correlation at |r| = .10, moderate correlation at |r| = .30 and strong correlation at |r| = .50. Cohen's d is used as the effect size for the T-test and is interpreted according to Cohen (1988) as follows: A small effect is found at |d| = 0.2, a moderate effect at |d| = 0.5 and a large effect at |d| = 0.8.
+
+
+**The original hypothesis:**
+
+### H1: The possibility of participating by choosing the technique(s) for anonymization (manipulation of condition) is positively related with acceptance of sharing the mobility data with the app.
+
+Persons who have the possibility to choose the technique(s) for anonymization are more likely to share their mobility data.
+
+```{r}
+
+car::leveneTest(ds$Acceptance ~ ds$condition)
+
+library(dplyr)
+
+ds %>%
+  group_by(condition) %>%
+  summarise(
+    M = mean(Acceptance, na.rm = TRUE),
+    SD = sd(Acceptance, na.rm = TRUE)
+  )
+
+#group 0 (condition) < group 1 (experimental)
+t.test(ds$Acceptance~ds$condition, var.equal = TRUE, alternative ="less")
+
+```
+
+
+### H2 & H3
+
+H2: The positive relationship between choosing the technique(s) for anonymization and acceptance is mediated by higher levels of subjective understanding.
+and
+H3: The positive relationship between choosing the technique(s) for anonymization and acceptance is mediated by higher levels of objective understanding.
+
+At first we check the requirements for a mediation analysis, i.e. regressions
+```{r}
+ds_clean <- ds %>%
+  dplyr::select(condition, Subjective_Understanding, Acceptance, condition_num, OU_score) %>%
+  na.omit()
+
+# Step 1: Mediator model
+model_m_h2 <- lm(Subjective_Understanding ~ condition, data = ds_clean)
+
+# Step 2: Outcome model (with mediator)
+model_y_h2 <- lm(Acceptance ~ Subjective_Understanding + condition, data = ds_clean)
+
+
+#Homoscedasticty, if significant heteroscedasticity
+cat("Test for homoscedasticity\n")
+cat("1.Mediator\n")
+performance::check_heteroscedasticity(model_m_h2)
+cat("2.Outcome model\n")
+performance::check_heteroscedasticity(model_y_h2)
+
+#Multicollinearity
+cat("\nVIF\n")
+car::vif(model_y_h2)
+
+# Influential outliers using Cook's Distance 
+cat("\nInfluential outliers\n")
+threshold <- 4/nrow(ds_clean)
+cooksd_h2 <- cooks.distance(model_y_h2)
+influential_outliers_h2 <- cooksd_h2 > threshold
+print(sum(influential_outliers_h2))
+#performance::check_outliers(model_y_h2, threshold = list('mahalanobis' = 7, 'cook' = threshold))
+plot(cooksd_h2, type = "h",
+     main = "Cook's Distance",
+     ylab = "Cook's Distance",
+     xlab = "Observation")
+abline(h = threshold, col = "red", lty = 2, lwd = 2)
+
+
+#independence of residuals
+cat("\nIndependence of residuals\n")
+cat("1.Mediator\n")
+performance::check_autocorrelation(model_m_h2)
+cat("\n2.Outcome model\n")
+performance::check_autocorrelation(model_y_h2)
+
+#linearity between Subjective understanding and Acceptance, since condition is binary, it has a linear relationsship with Subjective understanding
+plot(ds_clean$Subjective_Understanding, ds_clean$Acceptance,
+     xlab = "Mediator: Subjecive Understanding", ylab = "AV: Acceptance")
+abline(lm(Acceptance ~ Subjective_Understanding, data = ds_clean), col = "red")
+```
+checking requirements for H3
+```{r}
+ds_clean <- ds %>%
+  dplyr::select(condition, OU_score, Acceptance) %>%
+  na.omit()
+
+# Step 1: Mediator model
+model_m_h3 <- lm(OU_score ~ condition, data = ds_clean)
+
+# Step 2: Outcome model (with mediator)
+model_y_h3 <- lm(Acceptance ~ OU_score + condition, data = ds_clean)
+
+
+#Homoscedasticty, if significant heteroscedasticity
+cat("Test for homoscedasticity\n")
+cat("1.Mediator\n")
+performance::check_heteroscedasticity(model_m_h3)
+cat("2.Outcome model\n")
+performance::check_heteroscedasticity(model_y_h3)
+
+
+#Multicollinearity
+cat("\nVIF\n")
+car::vif(model_y_h2)
+
+
+# Influential outliers using Cook's Distance 
+cat("\nInfluential outliers\n")
+cooksd_h3 <- cooks.distance(model_y_h3)
+threshold <- 4/nrow(ds_clean)
+influential_outliers_h3 <- cooksd_h3 > threshold
+print(sum(influential_outliers_h3))
+#performance::check_outliers(model_y_h2, threshold = list('mahalanobis' = 7, 'cook' = threshold))
+
+plot(cooksd_h3, type = "h",
+     main = "Cook's Distance",
+     ylab = "Cook's Distance",
+     xlab = "Observation")
+abline(h = threshold, col = "red", lty = 2, lwd = 2)
+
+
+#independence of residuals
+cat("\nIndependence of residuals\n")
+cat("1.Mediator\n")
+performance::check_autocorrelation(model_m_h3)
+cat("\n2.Outcome model\n")
+performance::check_autocorrelation(model_y_h3)
+
+
+#linearity between objective understanding and Acceptance, since condition is binary, it has a linear relationsship with Subjective understanding
+plot(ds_clean$OU_score, ds_clean$Acceptance,
+     xlab = "Mediator: Objective Understanding", ylab = "AV: Acceptance")
+abline(lm(Acceptance ~ OU_score, data = ds_clean), col = "red")
+
+```
+
+
+parallel Mediation with PROCESS (model 4) 
+with influential outliers
+```{r}
+ds_clean <- ds %>%
+  dplyr::select(condition, Subjective_Understanding, Acceptance, condition_num, OU_score) %>%
+  na.omit()
+
+#parallel mediation, contrast = 1 (both in same direction; 2 would be absolute difference in effect direction)
+#additional parameters: effsize-> standartized effect for indirect path; total-> total effect [IV->DV], stand-> standartized effects (a and b), bootstrapping for every effect [not only indirect], seed->for the same results for every new bootstrap
+process(data = ds_clean, y = "Acceptance", x = "condition_num", m = c("Subjective_Understanding", "OU_score"), model = 4, contrast = 1, effsize = 1, total = 1, stand = 1, modelbt = 1, seed = 654321)
+```
+
+```{r}
+#in sum 116 exclusions
+ds_clean_h2Andh3 <- ds_clean[!influential_outliers_h2 & !influential_outliers_h3, ]
+
+#parallel mediation, contrast = 1 (both in same direction; 2 would be absolute difference in effect direction)
+#additional parameters: effsize-> standartized effect for indirect path; total-> total effect [IV->DV], stand-> standartized effects (a and b), bootstrapping for every effect [not only indirect], seed->for the same results for every new bootstrap
+
+process(data = ds_clean_h2Andh3, y = "Acceptance", x = "condition_num", m = c("Subjective_Understanding", "OU_score"), model = 4, contrast = 1, effsize = 1, total = 1, stand = 1, modelbt = 1, seed = 654321)
+```
+#### H3.2: higher objective understanding -> higher acceptance
+
+
+```{r}
+model_h3_2 <- lm(
+   Acceptance ~ OU_score,
+   data = ds
+ )
+
+#checking for heteroscedasticity, independence of residuals, normality of residuals and outliers
+performance::check_heteroscedasticity(model_h3_2)
+performance::check_autocorrelation(model_h3_2)
+cat("\n")
+performance::check_normality(model_h3_2)
+performance::check_outliers(model_h3_2, threshold = list('mahalanobis' = 7, 'cook' = threshold))
+
+#since we have heteroscedasticity and non-normality of residuals, we use coeftest function with vcov model 4 
+lmtest::coeftest(model_h3_2, vcov = vcovHC(model_h3_2, type = "HC4"))
+ 
+plot(model_h3_2, which = 1)
+plot(model_h3_2, which = 2)
+
+#robustness check excluding the influential outliers
+cooksd_h3_2 <- cooks.distance(model_h3_2)
+influential_outliers_h3_h2 <- cooksd_h3_2 > threshold
+ds_robust <- ds[!influential_outliers_h3_h2, ]
+
+model_h3_2_robust <- lm(Acceptance ~ OU_score, data = ds_robust)
+lmtest::coeftest(model_h3_2_robust, vcov = vcovHC(model_h3_2_robust, type = "HC4"))
+```
+
+
+# Explorative Data Analysis: Mediation 
+
+Since H1 is not significant, we explored an alternative independent variable/ mediator for our hypothesis.
+
+## new IV/mediator : Feeling of participation
+
+### H4: manipulation of condition (participation yes/no) -> higher feeling of participation
+
+Persons who have the possibility to choose the technique(s) for anonymization had a higher feeling of participation.
+
+
+```{r}
+
+car::leveneTest(ds$Feeling_of_participation ~ ds$condition)
+
+library(dplyr)
+
+ds %>%
+  group_by(condition) %>%
+  summarise(
+    M = mean(Feeling_of_participation, na.rm = TRUE),
+    SD = sd(Feeling_of_participation, na.rm = TRUE)
+  )
+
+# Welch-t-test
+t.test(Feeling_of_participation ~ condition,
+       data = ds,
+       alternative = "less")
+
+```
+
+
+
+### H5: higher feeling of participation -> higher acceptance to share mobility data
+
+Persons who reported a higher feeling of participation are more likely to share the mobility data. 
+
+```{r}
+model_h5 <- lm(
+   Acceptance ~ Feeling_of_participation,
+   data = ds
+)
+
+summary(model_h5)
+
+
+#checking for heteroscedasticity, independence of residuals, normality of residuals and outliers
+performance::check_heteroscedasticity(model_h5)
+performance::check_autocorrelation(model_h5)
+performance::check_normality(model_h5)
+performance::check_outliers(model_h5, threshold = list('mahalanobis' = 7, 'cook' = threshold))
+
+#since we have heteroscedasticity and non-normality of residuals, we use coeftest function with vcov model 4 
+lmtest::coeftest(model_h5, vcov = vcovHC(model_h5, type = "HC4"))
+
+plot(model_h5, which = 1)
+plot(model_h5, which = 2)
+
+
+#robustness check excluding the influential outliers
+cooksd_h5 <- cooks.distance(model_h5)
+influential_outliers_h5 <- cooksd_h5 > threshold
+ds_robust <- ds[!influential_outliers_h5, ]
+
+model_h5_robust <- lm(Acceptance ~ Feeling_of_participation, data = ds_robust)
+lmtest::coeftest(model_h5_robust, vcov = vcovHC(model_h5_robust, type = "HC4"), df_model5 = df.residuals(model_h5))
+
+```
+
+
+## Feeling of Participation, Subjective Understanding, Objective Understanding and Acceptance
+
+```{r}
+ds_clean <- ds %>%
+  dplyr::select(condition, Subjective_Understanding, Acceptance, condition_num, OU_score, Feeling_of_participation) %>%
+  na.omit()
+
+# Step 1: Mediator model
+model_m_h6 <- lm(Subjective_Understanding ~ Feeling_of_participation, data = ds_clean)
+
+# Step 2: Outcome model (with mediator)
+model_y_h6 <- lm(Acceptance ~ Subjective_Understanding + Feeling_of_participation, data = ds_clean)
+
+
+#Homoscedasticty, if significant heteroscedasticity
+cat("Test for homoscedasticity\n")
+cat("1.Mediator\n")
+performance::check_heteroscedasticity(model_m_h6)
+cat("2.Outcome model\n")
+performance::check_heteroscedasticity(model_y_h6)
+
+#Multicollinearity
+cat("\nVIF\n")
+car::vif(model_y_h6)
+
+# Influential outliers using Cook's Distance 
+cat("\nInfluential outliers\n")
+threshold <- 4/nrow(ds_clean)
+cooksd_h6 <- cooks.distance(model_y_h6)
+influential_outliers_h6 <- cooksd_h6 > threshold
+print(sum(influential_outliers_h6))
+#performance::check_outliers(model_y_h2, threshold = list('mahalanobis' = 7, 'cook' = threshold))
+plot(cooksd_h6, type = "h",
+     main = "Cook's Distance",
+     ylab = "Cook's Distance",
+     xlab = "Observation")
+abline(h = threshold, col = "red", lty = 2, lwd = 2)
+
+
+#independence of residuals
+cat("\nIndependence of residuals\n")
+cat("1.Mediator\n")
+performance::check_autocorrelation(model_m_h6)
+cat("\n2.Outcome model\n")
+performance::check_autocorrelation(model_y_h6)
+
+#linearity between Subjective understanding and Acceptance, since condition is binary, it has a linear relationsship with Subjective understanding
+plot(ds_clean$Subjective_Understanding, ds_clean$Acceptance,
+     xlab = "Mediator: Subjecive Understanding", ylab = "AV: Acceptance")
+abline(lm(Acceptance ~ Subjective_Understanding, data = ds_clean), col = "red")
+```
+checking requirements for H7
+```{r}
+
+# Step 1: Mediator model
+model_m_h7 <- lm(OU_score ~ Feeling_of_participation, data = ds_clean)
+
+# Step 2: Outcome model (with mediator)
+model_y_h7 <- lm(Acceptance ~ OU_score + Feeling_of_participation, data = ds_clean)
+
+
+#Homoscedasticty, if significant heteroscedasticity
+cat("Test for homoscedasticity\n")
+cat("1.Mediator\n")
+performance::check_heteroscedasticity(model_m_h7)
+cat("2.Outcome model\n")
+performance::check_heteroscedasticity(model_y_h7)
+
+
+# Influential outliers using Cook's Distance 
+cat("\nInfluential outliers\n")
+cooksd_h7 <- cooks.distance(model_y_h7)
+threshold <- 4/nrow(ds_clean)
+influential_outliers_h7 <- cooksd_h7 > threshold
+print(sum(influential_outliers_h7))
+#performance::check_outliers(model_y_h2, threshold = list('mahalanobis' = 7, 'cook' = threshold))
+
+plot(cooksd_h7, type = "h",
+     main = "Cook's Distance",
+     ylab = "Cook's Distance",
+     xlab = "Observation")
+abline(h = threshold, col = "red", lty = 2, lwd = 2)
+
+
+#independence of residuals
+cat("\nIndependence of residuals\n")
+cat("1.Mediator\n")
+performance::check_autocorrelation(model_m_h7)
+cat("\n2.Outcome model\n")
+performance::check_autocorrelation(model_y_h7)
+
+
+#linearity between objective understanding and Acceptance, since condition is binary, it has a linear relationsship with Subjective understanding
+plot(ds_clean$OU_score, ds_clean$Acceptance,
+     xlab = "Mediator: Objective Understanding", ylab = "AV: Acceptance")
+abline(lm(Acceptance ~ OU_score, data = ds_clean), col = "red")
+
+```
+
+
+parallel Mediation with PROCESS (model 4) 
+with influential outliers
+```{r}
+ds_clean <- ds %>%
+  dplyr::select(Feeling_of_participation, Subjective_Understanding, Acceptance, condition_num, OU_score) %>%
+  na.omit()
+
+#parallel mediation, contrast = 1 (both in same direction; 2 would be absolute difference in effect direction)
+#additional parameters: effsize-> standartized effect for indirect path; total-> total effect [IV->DV], stand-> standartized effects (a and b), bootstrapping for every effect [not only indirect], seed->for the same results for every new bootstrap
+process(data = ds_clean, y = "Acceptance", x = "Feeling_of_participation", m = c("Subjective_Understanding", "OU_score"), model = 4, contrast = 1, effsize = 1, total = 1, stand = 1, modelbt = 1, seed = 654321)
+```
+
+```{r}
+#in sum 116 exclusion
+ds_clean_h6Andh7 <- ds_clean[!influential_outliers_h6 & !influential_outliers_h7, ]
+
+#parallel mediation, contrast = 1 (both in same direction; 2 would be absolute difference in effect direction)
+#additional parameters: effsize-> standartized effect for indirect path; total-> total effect [IV->DV], stand-> standartized effects (a and b), bootstrapping for every effect [not only indirect], seed->for the same results for every new bootstrap
+
+process(data = ds_clean_h6Andh7, y = "Acceptance", x = "Feeling_of_participation", m = c("Subjective_Understanding", "OU_score"), model = 4, contrast = 1, effsize = 1, total = 1, stand = 1, modelbt = 1, seed = 654321)
+```
+
+
+## Mediator: Interaction with Explanations
+
+### H9: higher feeling of participation -> more clicks in information boxes
+
+Persons who reported a higher feeling of participation clicked the information boxes more often. 
+
+```{r}
+library(MASS)
+#binomialmodell, nicht ordinale regression
+model_h9_binomial <- glm.nb(
+  Info_clicked_score ~ Feeling_of_participation,
+  data = ds
+)
+
+summary(model_h9_binomial)
+
+#model_h9_ordinal <- clm(Info_clicked_score_factor ~ Feeling_of_participation, data = ds)
+
+#nominal_test(model_h9_ordinal)
+
+#model_h9_vglm <- VGAM::vglm(ds$Info_clicked_score_factor ~ ds$Feeling_of_participation, data = ds, family = cumulative(parallel = FALSE ~ condition))
+#summary(model_h9_vglm)
+
+#model_h9 <- lm(
+#   Info_clicked_score ~ Feeling_of_participation,
+#   data = ds
+#)
+
+
+#checking for heteroscedasticity, independence of residuals, normality of residuals and outliers
+#performance::check_heteroscedasticity(model_h9)
+#performance::check_autocorrelation(model_h9)
+#performance::check_normality(model_h9)
+#performance::check_outliers(model_h9, threshold = list('mahalanobis' = 7, 'cook' = threshold))
+
+#plot(model_h9, which = 1)
+#plot(model_h9, which = 2)
+
+#robustness check excluding the influential outliers
+#cooksd_h9 <- cooks.distance(model_h9)
+#influential_outliers_h9 <- cooksd_h9 > threshold
+#ds_robust <- ds[!influential_outliers_h9, ]
+
+#model_h9_robust <- lm(Info_clicked_score ~ Feeling_of_participation, data = ds_robust)
+#summary(model_h9_robust)
+```
+
+### H10: more clicks in information boxes -> objective understanding
+
+```{r}
+
+ model_h10 <- lm(
+   OU_score ~ as.numeric(Info_clicked_score),
+   data = ds
+ )
+
+
+#checking for heteroscedasticity, independence of residuals, normality of residuals and outliers
+performance::check_heteroscedasticity(model_h10)
+performance::check_autocorrelation(model_h10)
+performance::check_normality(model_h10)
+performance::check_outliers(model_h10, threshold = list('mahalanobis' = 7, 'cook' = threshold))
+
+lmtest::coeftest(model_h10, vcov = vcovHC(model_h10, type = "HC4"))
+
+plot(model_h10, which = 1)
+plot(model_h10, which = 2)
+
+
+#robustness check excluding the influential outliers
+cooksd_h10 <- cooks.distance(model_h10)
+influential_outliers_h10 <- cooksd_h10 > threshold
+ds_robust <- ds[!influential_outliers_h10, ]
+
+model_h10_robust <- lm(OU_score ~ as.numeric(Info_clicked_score), data = ds_robust)
+lmtest::coeftest(model_h10_robust, vcov = vcovHC(model_h10_robust, type = "HC4"))
+
+```
+
+
+# Explorative Data Analysis: Variables
+
+
+##Gender 
+
+```{r}
+# Basic pie chart - Gender
+pie(gender_counts_binary,
+    main = "Geschlecht binär",
+    col = c("#89CFF0", "#F4C2C2"),
+    labels = paste(names(gender_counts_binary), "\n", gender_counts_binary)
+)
+```
+
+## Age
+
+```{r}
+
+summary(ds$age)
+
+boxplot(ds$age, main = "Age Distribution", ylab = "Age", col = "lightblue")
+
+table(ds$age_split_by_mean)
+table(ds$age_split_by_median)
+```
+
+## Time spent in survey per participant
+
+```{r}
+summary(ds$time_total)
+```
+
+
+```{r}
+
+hist(ds$time_total,
+     main = "Total Time per Participant (before filtering)",
+     xlab = "Total Time (min)",
+     col = "lightblue",
+     border = "white",
+     breaks = 40  
+)
+
+
+```
+
+### Time spent per page (means over all participants)
+
+
+```{r time_spent_on_page}
+# Means per page
+
+# Create column names and page names
+colums_time <- paste0("TIME", sprintf("%03d", 50:69))
+names_pages <- paste0("page_", sprintf("%03d", 50:69))
+
+# Calculate the mean for each TIME column, set NA to 0
+means <- colMeans(ds[, colums_time], na.rm = TRUE)
+means[is.na(means)] <- 0
+
+# Combine page names and means into a data frame
+plot_data <- data.frame(
+  Page = names_pages,
+  MeanTime = means
+)
+
+# Define page groups by index
+pages_control <- 1:9 # TIME050 to TIME058
+pages_experimental <- 10:18 # TIME059 to TIME067
+pages_end <- 19:20 # TIME068 to TIME069 # Objective Understandung and Erlebte Mitbestimmung (ManiCheck), für beide Gruppen
+
+# Assign colors based on page groups
+bar_colors <- rep(NA, length(plot_data$MeanTime))
+bar_colors[pages_control] <- "skyblue"
+bar_colors[pages_experimental] <- "orange"
+bar_colors[pages_end] <- "lightgreen"
+
+par(mar = c(7, 4, 4, 2))  # bottom, left, top, right
+
+# Create the barplot with colored bars
+bp <- barplot(plot_data$MeanTime,
+              names.arg = "",
+              cex.names = 0.5,
+              horiz = TRUE,
+              las = 1,
+              main = "Mean Time Spent per Page",
+              xlab = "Mean Time Spent (sec)",
+              xlim = c(0, max(plot_data$MeanTime) * 1.2),
+              col = bar_colors
+)
+
+# Add the page names to the right of each bar
+text(x = plot_data$MeanTime + max(plot_data$MeanTime) * 0.02,
+     y = bp,
+     labels = plot_data$Page,
+     pos = 4,
+     cex = 0.7
+)
+
+# Add a legend
+legend("bottomright",
+       legend = c("Control pages", "Experimental pages", "End pages"),
+       fill = c("skyblue", "orange", "lightgreen"),
+       cex = 0.8,
+
+)
+
+# 
+mtext("Note: page_053 and page_062: Shuffling (will never be seen by participants).",
+      side = 1,       # bottom margin (x-axis side)
+      line = 5,       # how far below the axis (increase value to move lower)
+      cex = 0.7       # font size
+)
+mtext("Note: page_068: Objective Understanding.",
+      side = 1,       # bottom margin (x-axis side)
+      line = 6,       # how far below the axis (increase value to move lower)
+      cex = 0.7       # font size
+)
+
+
+```
+
+##Correlation between variables
+```{r}
+
+cor_4_items <- rcorr(as.matrix(ds[c(
+  "Subjective_Understanding", "OU_score",
+  "Acceptance", "Feeling_of_participation"
+)]), type = "pearson")
+
+cor_4_items$r  # Korrelationen
+cor_4_items$P  # p-Werte für Signifikanz
+
+```
+```{r}
+# Laden der nötigen Bibliothek
+library(Hmisc)
+
+# Berechne Korrelationen mit p-Werten und Konfidenzintervallen
+variables <- c("Subjective_Understanding", "OU_score", "Acceptance", "Feeling_of_participation")
+
+# Erstelle eine Liste für die Ergebnisse
+results <- list()
+
+# Durchlaufe alle Paare
+n <- length(variables)
+for (i in 1:(n-1)) {
+  for (j in (i+1):n) {
+    var1 <- variables[i]
+    var2 <- variables[j]
+    
+    # Berechne Korrelation mit Konfidenzintervall
+    test_result <- cor.test(ds[[var1]], ds[[var2]], method = "pearson", conf.level = 0.95)
+    
+    # Speichere Ergebnisse
+    results[[paste(var1, var2, sep = "_")]] <- list(
+      variable1 = var1,
+      variable2 = var2,
+      r = test_result$estimate,
+      r_se = test_result$estimate / sqrt(test_result$statistic^2),  # Standardfehler (optional)
+      p_value = test_result$p.value,
+      ci_lower = test_result$conf.int[1],
+      ci_upper = test_result$conf.int[2]
+    )
+  }
+}
+
+# Konvertiere die Liste in einen Dataframe für bessere Übersicht
+results_df <- do.call(rbind, lapply(results, as.data.frame))
+
+# Ausgabe: Korrelationen, p-Werte und 95%-KI
+print(results_df)
+```
+
+##Order of Methods for Anonymization
+
+The order of the presentations of the methods for anonymization was randomized.
+
+For 4 methods for anonymization there are 4! = 24 possible permutations.
+
+1. A1 - A2 - A3 - A4  
+2. A1 - A2 - A4 - A3  
+3. A1 - A3 - A2 - A4  
+4. A1 - A3 - A4 - A2  
+5. A1 - A4 - A2 - A3  
+6. A1 - A4 - A3 - A2  
+7. A2 - A1 - A3 - A4  
+8. A2 - A1 - A4 - A3  
+9. A2 - A3 - A1 - A4  
+10. A2 - A3 - A4 - A1  
+11. A2 - A4 - A1 - A3  
+12. A2 - A4 - A3 - A1  
+13. A3 - A1 - A2 - A4  
+14. A3 - A1 - A4 - A2  
+15. A3 - A2 - A1 - A4  
+16. A3 - A2 - A4 - A1  
+17. A3 - A4 - A1 - A2  
+18. A3 - A4 - A2 - A1  
+19. A4 - A1 - A2 - A3  
+20. A4 - A1 - A3 - A2  
+21. A4 - A2 - A1 - A3  
+22. A4 - A2 - A3 - A1  
+23. A4 - A3 - A1 - A2  
+24. A4 - A3 - A2 - A1  
+
+
+```{r}
+get_permutation_id <- function(row) {
+  
+  # Convert to data frame row (if not already)
+  if (!is.data.frame(row)) {
+    row <- as.data.frame(t(row), stringsAsFactors = FALSE)
+  }
+
+  # Extract last two characters
+  position_1 <- str_sub(row$AN18_01, -2, -1)
+  position_2 <- str_sub(row$AN18_02, -2, -1)
+  position_3 <- str_sub(row$AN18_03, -2, -1)
+  position_4 <- str_sub(row$AN18_04, -2, -1)
+
+  permutation <- paste(position_1, position_2, position_3, position_4, sep = " - ")
+  # print(permutation)
+
+  # Match against predefined list (same as before)
+  permutations <- c(
+    "A1 - A2 - A3 - A4", "A1 - A2 - A4 - A3", "A1 - A3 - A2 - A4", "A1 - A3 - A4 - A2",
+    "A1 - A4 - A2 - A3", "A1 - A4 - A3 - A2", "A2 - A1 - A3 - A4", "A2 - A1 - A4 - A3",
+    "A2 - A3 - A1 - A4", "A2 - A3 - A4 - A1", "A2 - A4 - A1 - A3", "A2 - A4 - A3 - A1",
+    "A3 - A1 - A2 - A4", "A3 - A1 - A4 - A2", "A3 - A2 - A1 - A4", "A3 - A2 - A4 - A1",
+    "A3 - A4 - A1 - A2", "A3 - A4 - A2 - A1", "A4 - A1 - A2 - A3", "A4 - A1 - A3 - A2",
+    "A4 - A2 - A1 - A3", "A4 - A2 - A3 - A1", "A4 - A3 - A1 - A2", "A4 - A3 - A2 - A1"
+  )
+  # print(match(permutation, permutations))
+  return(match(permutation, permutations))
+}
+
+ds$permutation_id <- apply(ds, 1, get_permutation_id)
+
+```
+
+
+
+Test, if equally distributed
+
+```{r}
+# Ensure permutation_id is a factor with all 24 levels
+perm_ids <- factor(ds$permutation_id, levels = 1:24)
+
+# Count frequencies (missing levels will be 0)
+perm_freq <- table(perm_ids)
+
+# Plot barplot
+barplot(perm_freq,
+        main = "Frequency of Each Permutation ID",
+        xlab = "Permutation ID",
+        ylab = "Frequency",
+        col = "lightblue",
+        names.arg = 1:24,
+        ylim = c(0,50)
+)
+
+
+```
+```{r}
+#testing how many anonymization methods are used in the experimental condition
+columns_application_anonymisation <- c("AN01", "AN04", "AN05", "AN06")
+
+
+item_labels_an <- c("A1", "A2", "A3", "A4")
+
+item_labels_an_ausgeschrieben <- c(
+  "Adding artificial data",
+  "Protection of sensitive places",
+  "Generalization of mobility data",
+  "Separation of route and person"
+)
+
+
+ds$Application_anonymization <- rowSums(
+  ds[, columns_application_anonymisation] == "Ja",
+  na.rm = FALSE
+)
+
+plot_data <- subset(ds, experimental == 1)
+
+# Frequency table
+freq <- table(factor(plot_data$Application_anonymization, levels = 0:4))
+
+png("Application_anonymization.png",
+    width = 2000,
+    height = 1500,
+    res = 300)
+
+# Barplot
+bp <- barplot(freq,
+              xlab = "Number of methods applied",
+              ylab = "Frequency",
+              col = "lightblue",
+              ylim = c(0,250)
+)
+
+dev.off()
+
+bp
+
+# Count "Yes" responses
+yes_counts_an <- sapply(
+  plot_data[, columns_application_anonymisation],
+  function(x) sum(x == "Ja", na.rm = TRUE)
+)
+
+# Barplot
+barplot(
+  yes_counts_an,
+  names.arg = item_labels_an,
+  horiz = TRUE,
+  main = "Anonymization methods applied",
+  xlab = "Number of 'Yes' responses",
+  col = "lightblue",
+  las = 1
+)
+
+columns_ou <- c("OU_A1", "OU_A2", "OU_A3", "OU_A4")
+
+item_labels_ou <- c(
+  "OU_A1",
+  "OU_A2",
+  "OU_A3",
+  "OU_A4"
+)
+
+# Count "Yes" responses
+yes_counts_ou <- sapply(
+  plot_data[, columns_ou],
+  function(x) sum(x == "1", na.rm = TRUE)
+)
+
+# Barplot
+barplot(
+  yes_counts_ou,
+  names.arg = item_labels_ou,
+  horiz = TRUE,
+  main = "OU items",
+  xlab = "Number of 'Yes' responses",
+  col = "lightblue",
+  las = 1
+)
+
+```
+
+# Literatur
+
+Cohen, J. (1988). Statistical power analysis for the behavioral sciences (2nd ed.). Lawrence Erlbaum.
+
+Waclawek, T., Fiedler, A., Schütz, M., &amp; Schütz, A. (2024). Crowd-counting technology within the Smart City context: understanding, trust, and acceptance. Frontiers in Psychology, 15, 1423837.
+
+Hayes, A. F. (2022). Introduction to Mediation, Moderation, and Conditional Process Analysis. 3rd Edn. New York: The Guilford Press
+
+Schoemann, A. M., Boulton, A. J., &amp; Short, S. D. (2017). Determining power and sample size for simple and complex mediation models. Social Psychological and Personality Science, 8(4), 379-386.
+
+Rehouma, M. B., Geyer, T., &amp; Kahl, T. (2020). Investigating change management based on participation and acceptance of IT in the public sector: A mixed research study. International Journal of Public Administration in the Digital Age (IJPADA), 7(4), 51-70.
+
+Lee, S., Diehl, T., &amp; Valenzuela, S. (2022). Rethinking the virtuous circle hypothesis on social media: Subjective versus objective knowledge and political participation. Human Communication Research, 48(1), 57-87.
+
+Carlson, J. P., Vincent, L. H., Hardesty, D. M., &amp; Bearden, W. O. (2009). Objective and subjective knowledge relationships: A quantitative analysis of consumer research findings. Journal of consumer research, 35(5), 864-876.
+
+Cohen, J. (1988). Statistical power analysis for the behavioral sciences (2nd ed.). Lawrence Erlbaum.
+
+Waclawek, T., Fiedler, A., Schütz, M., &amp; Schütz, A. (2024). Crowd-counting technology within the Smart City context: understanding, trust, and acceptance. Frontiers in Psychology, 15, 1423837.
+
+Hayes, A. F. (2022). Introduction to Mediation, Moderation, and Conditional Process Analysis. 3rd Edn. New York: The Guilford Press
+
+Schoemann, A. M., Boulton, A. J., &amp; Short, S. D. (2017). Determining power and sample size for simple and complex mediation models. Social Psychological and Personality Science, 8(4), 379-386.
+
+Rehouma, M. B., Geyer, T., &amp; Kahl, T. (2020). Investigating change management based on participation and acceptance of IT in the public sector: A mixed research study. International Journal of Public Administration in the Digital Age (IJPADA), 7(4), 51-70.
+
+Lee, S., Diehl, T., &amp; Valenzuela, S. (2022). Rethinking the virtuous circle hypothesis on social media: Subjective versus objective knowledge and political participation. Human Communication Research, 48(1), 57-87.
+
+Carlson, J. P., Vincent, L. H., Hardesty, D. M., &amp; Bearden, W. O. (2009). Objective and subjective knowledge relationships: A quantitative analysis of consumer research findings. Journal of consumer research, 35(5), 864-876.
+
+Christensen R (2025). ordinal—Regression Models for Ordinal Data. R package version 2025.12-29, https://CRAN.R-project.org/package=ordinal. 
+
+Vgl. Hayes, A. F. (2018). Introduction to Mediation, Moderation, and Conditional Process Analysis, Second Edition (Methodology in the Social Sciences) (2nd ed.). Guilford Press.
